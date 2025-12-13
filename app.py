@@ -48,7 +48,7 @@ def combine_videos_with_bgm():
             stitched_video
         ], check=True)
 
-        # Step 2: Loop video to match MP3 duration
+        # Step 2: Loop video and CUT when MP3 ends
         subprocess.run([
             "ffmpeg", "-y",
             "-stream_loop", "-1",
@@ -59,6 +59,7 @@ def combine_videos_with_bgm():
             "-map", "[a]",
             "-c:v", "copy",
             "-c:a", "aac",
+            "-shortest",          # ✅ THIS IS THE FIX
             output_path
         ], check=True)
 
