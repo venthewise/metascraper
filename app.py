@@ -3,18 +3,26 @@ import subprocess
 import os
 import shutil
 import uuid
+import json
 
 app = Flask(__name__)
 
 @app.route("/combine_videos_with_bgm", methods=["POST"])
 def combine_videos_with_bgm():
-    data = request.json
-    videos = data.get("videos", [])
-    bgm_url = data.get("bgm")
-    bgm_volume = str(data.get("bgm_volume", 0.15))
+    # multipart/form-data
+    videos_raw = request.form.get("videos")
+    bgm_file = request.files.get("bgm")
+    bgm_volume = request.form.get("bgm_volume", "0.15")
 
-    if not videos or not bgm_url:
+    if not videos_raw or not bgm_file:
         return jsonify({"error": "Missing videos or bgm"}), 400
+
+    try:
+        videos = json.loads(videos_raw)
+        if not isinstance(videos, list) or len(videos) == 0:
+            raise ValueError
+    except Exception:
+        return jsonify({"error": "videos must be a JSON array of URLs"}), 400
 
     workdir = f"/app/work_{uuid.uuid4().hex}"
     os.makedirs(workdir, exist_ok=True)
@@ -25,20 +33,24 @@ def combine_videos_with_bgm():
     output_path = os.path.join(workdir, "output.mp4")
 
     try:
+        # Save uploaded BGM
+        bgm_file.save(bgm_path)
+
         # Download videos
         with open(concat_file, "w") as f:
             for i, url in enumerate(videos):
                 clip_path = os.path.join(workdir, f"clip_{i}.mp4")
-                subprocess.run(["wget", "-q", "-O", clip_path, url], check=True)
+                subprocess.run(
+                    ["wget", "-q", "-O", clip_path, url],
+                    check=True
+                )
                 f.write(f"file '{clip_path}'\n")
 
-        # Download BGM
-        subprocess.run(["wget", "-q", "-O", bgm_path, bgm_url], check=True)
-
-        # Step 1: Stitch videos (VIDEO ONLY, NO AUDIO)
+        # Step 1: Stitch videos (video only, muted)
         subprocess.run([
             "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0",
+            "-f", "concat",
+            "-safe", "0",
             "-i", concat_file,
             "-an",
             "-c:v", "libx264",
@@ -48,7 +60,7 @@ def combine_videos_with_bgm():
             stitched_video
         ], check=True)
 
-        # Step 2: Loop video and CUT when MP3 ends
+        # Step 2: Loop video, add BGM, CUT when MP3 ends
         subprocess.run([
             "ffmpeg", "-y",
             "-stream_loop", "-1",
@@ -59,7 +71,7 @@ def combine_videos_with_bgm():
             "-map", "[a]",
             "-c:v", "copy",
             "-c:a", "aac",
-            "-shortest",          # ✅ THIS IS THE FIX
+            "-shortest",
             output_path
         ], check=True)
 
@@ -69,7 +81,6 @@ def combine_videos_with_bgm():
         return jsonify({"error": str(e)}), 500
 
     finally:
-        # Zero persistence — full cleanup
         shutil.rmtree(workdir, ignore_errors=True)
 
 
