@@ -1,13 +1,15 @@
-FROM ubuntu:22.04
+FROM node:20-slim
 
 RUN apt-get update && \
-    apt-get install -y ffmpeg wget python3 python3-pip && \
-    apt-get clean
+    apt-get install -y ffmpeg && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-RUN pip install flask requests
 
-COPY app.py .
+COPY package.json ./
+RUN npm install --production
 
-EXPOSE 8080
-CMD ["python3", "app.py"]
+COPY server.js .
+
+EXPOSE 3000
+CMD ["npm", "start"]
